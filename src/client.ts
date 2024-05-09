@@ -59,6 +59,7 @@ type GrpcEventPayload =
     error: string;
     code?: number;
     trailers?: GrpcMetadata;
+    headers?: GrpcMetadata;
   } | {
     type: 'headers';
     payload: GrpcMetadata;
@@ -150,11 +151,27 @@ export class GrpcClient {
           this.#deferredMap.delete(event.id);
           break;
         case 'error':
-          const error = new GrpcError(event.error, event.code, event.trailers);
-
-          deferred.response?.reject(error);
-          deferred.data?.noitfyError(error);
-
+          // TODO: handle the grpc trailers (and not just the grpc headers).
+          // This are slightly trickier as they come after the error event and
+          // may or may not come as opposed to the headers which are always
+          // resolved by the time we get the error event.
+          let handleError = (hdrs?: GrpcMetadata) => {
+            const error = new GrpcError(
+              event.error,
+              event.code,
+              event.trailers,
+              hdrs
+            );
+            deferred.response?.reject(error);
+            deferred.data?.noitfyError(error);
+          };
+          deferred.headers?.promise
+            .then((h) => {
+              handleError(h);
+            })
+            .catch(() => {
+              handleError(undefined);
+            });
           break;
       }
     }
